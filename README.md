@@ -1,9 +1,16 @@
 # ST170_ext.control_IMRC
-Ford Focus MK1(ST170) external control IMRC via Arduino Hall sensor of tachometer
+**Ford Focus MK1(ST170) external control IMRC via Arduino Hall sensor of tachometer**
 
-Original story and maintain in GitHub
+Original story is in my blog, but I maintain in GitHub to share my code of idea usage.
 https://jir.idv.tw/wordpress/?p=2745
 
+If this small code is helping through Arduino kits, it can donate BCH coin to me for encourage as following address:
+bitcoincash:qq6ghvdmyusnse9735rd5q09ensacl8z8qzrlwf49q
+
+Thank you very much.
+
+
+**** Copy from my site:
 [DIY]福特ST170的IMRC模組，外掛Arduino+霍爾感應器抓引擎轉速驅動
 發佈日期: 2020-12-27，作者: Jir
 
