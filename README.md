@@ -51,94 +51,13 @@ RELAY模組的正極接12號腳，負極接GND。
 等有空一點，改成監控點火電晶體的12V訊號好了。
 這個應該不會有周遭電場的雜訊干擾，只是要怎麼監控訊號，又不干擾點火系統的高阻抗電路，我要再想想。
 
-程式碼(初版1.0)：
 
-// digital pin 7 is the hall pin
-int hall_pin = 7;
-// set number of hall trips for RPM reading (higher improves accuracy)
-float hall_thresh = 100.0;
-//float hall_thresh = 50.0;
-
-int signalstatus = 0;
-int oldsignalstatus = 0;
-int relaystatus = 0;
-
-void setup() {
-// initialize serial communication at 9600 bits per second:
-Serial.begin(115200);
-// make the hall pin an input:
-pinMode(hall_pin, INPUT);
-
-pinMode(12,OUTPUT); //Relay signal active
-digitalWrite(12,LOW); //Relay default off
-delay(500);
-//pinMode(8,OUTPUT); //Pin 8 borrow as power 5v for Relay
-//digitalWrite(8,HIGH); //Pin 8 borrow as power 5v for Relay
-//delay(500);
-}
-
-// the loop routine runs over and over again forever:
-void loop() {
-// preallocate values for tach
-float hall_count = 1.0;
-float start = micros();
-bool on_state = false;
-// counting number of times the hall sensor is tripped
-// but without double counting during the same trip
-while(true){
-if (digitalRead(hall_pin)==0){
-if (on_state==false){
-on_state = true;
-hall_count+=1.0;
-}
-} else{
-on_state = false;
-}
-
-if (hall_count>=hall_thresh){
-break;
-}
-}
-
-// print information about Time and RPM
-float end_time = micros();
-float time_passed = ((end_time-start)/1000000.0);
-Serial.print("Time Passed: ");
-Serial.print(time_passed);
-Serial.println("s");
-float rpm_val = (hall_count/time_passed)*60.0;
-Serial.print(rpm_val);
-Serial.println(" RPM");
-delay(1); // delay in between reads for stability
-
-SIGNALFILTER:
-signalstatus = digitalRead(12); //memory pin12 condition
-if ((signalstatus == HIGH) && (oldsignalstatus == LOW)){
-relaystatus = 1 - relaystatus;
-delay(300);
-}
-oldsignalstatus == signalstatus;
-if (relaystatus == 1){
-digitalWrite(12, HIGH);
-}
-else {
-digitalWrite(12, LOW);
-}
-COMPARERPM:
-if(rpm_val/12>3900){ // fix filter 12 times of error
-delay(500);
-if(rpm_val/12>4000){
-digitalWrite(12, HIGH);
-delay(500);
-}
-} else {
-digitalWrite(12, LOW); //Others, relay keep NC
-delay(100);
-}
-}
 
 參考文章：
 http://stm32-learning.blogspot.com/2014/05/arduino.html
+
 http://59.126.75.42/blog/blog.php?uid=shadow&id=1862
+
 https://makersportal.com/blog/2018/10/3/arduino-tachometer-using-a-hall-effect-sensor-to-measure-rotations-from-a-fan
+
 https://kokoraskostas.blogspot.com/2013/12/arduino-inductive-spark-plug-sensor.html
