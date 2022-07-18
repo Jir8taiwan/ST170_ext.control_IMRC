@@ -39,11 +39,10 @@ delay(500);
 
   u8g.firstPage();  
   do {
-    u8g.setFont(u8g_font_helvB10);  
-    u8g.drawStr(30, 10, "github.com/Jir8taiwan"); 
-    u8g.drawStr(50, 30, "ST170_ext.control_IMRC");
-    u8g.drawStr(10, 50, "project");
-    u8g.drawStr(10, 60, "v.220718");
+    u8g.setFont(u8g_font_helvB08);  
+    u8g.drawStr(3, 12, "GitHub: Jir8taiwan"); 
+    u8g.drawStr(3, 32, "ST170_ext.control_IMRC");
+    u8g.drawStr(3, 52, "v.220718");
   } while( u8g.nextPage() );
   delay(500);  
 }
