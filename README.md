@@ -5,10 +5,10 @@ Original story is in my blog, but I maintain in GitHub to share my code of idea 
 https://jir.idv.tw/wordpress/?p=2745
 
 If this small code is helping through Arduino kits, it can donate BCH coin to me for encourage as following address:
-# 1. BTC - 3M4wWghm4MxmrSfXmHMEeCFNwP8Lxxqjzk
-# 2. BCH - bitcoincash:qq6ghvdmyusnse9735rd5q09ensacl8z8qzrlwf49q
-# 3. LTC - MR6HaFkfkmsfifX3jWu7xz33dULGotVUWB
-# 4. DOGE- DGEFd3AAfJrBuaUwc4P6R2ZT754Jon9fQ7
+1. BTC - 3M4wWghm4MxmrSfXmHMEeCFNwP8Lxxqjzk
+2. BCH - bitcoincash:qq6ghvdmyusnse9735rd5q09ensacl8z8qzrlwf49q
+3. LTC - MR6HaFkfkmsfifX3jWu7xz33dULGotVUWB
+4. DOGE- DGEFd3AAfJrBuaUwc4P6R2ZT754Jon9fQ7
 
 Thank you very much.
 
