@@ -1,6 +1,8 @@
 # ST170_ext.control_IMRC
 **Ford Focus MK1(ST170) external control IMRC via Arduino Hall sensor of tachometer**
+
 **Ford Focus MK1(ST170) Modified IMRC and drive motor by external CC/CV power module**
+
 **Ford Focus MK1(ST170) Delete function and bypass IMRC module**
 
 Original story is in my blog, but I also maintain in GitHub to share my code and usage ideas.
