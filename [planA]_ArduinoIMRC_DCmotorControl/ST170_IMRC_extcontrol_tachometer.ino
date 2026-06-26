@@ -1,102 +1,116 @@
-// ****** Using Arduino board to control IMRC active signal externally for Ford Focus MK1 ST170
-// Version 2.0 in 2022.03.21
+// ============================================================
+// Ford Focus MK1 ST170 — IMRC Active Signal Controller
+// Version 4.0  2026.06.26
 //
-// ****** define environment:
-// **digital pin 12 is control +5V realy coil
-// **digital pin 7 is the hall pin of signal input
-int hall_pin = 7;
-// **set number of hall trips for RPM reading (higher value scale improves accuracy)
-float hall_thresh = 400.0;
-//float hall_thresh = 100.0;
-//float hall_thresh = 50.0;
+// 功能說明：
+//   讀取點火線圈 Hall 感測器脈衝 → 計算 RPM
+//   RPM >= 6000 → 繼電器 ON  (pin 12 HIGH)
+//   RPM <  5800 → 繼電器 OFF (pin 12 LOW)
+//   5800 <= RPM < 6000 → 保持上一次狀態（遲滯保護，防止臨界點抖動）
+//
+// 接線說明：
+//   pin  D7  — Hall 感測器輸入（點火線圈脈衝信號）
+//   pin D12  — 繼電器線圈控制輸出（HIGH = 繼電器 ON）
+// ============================================================
 
-// **initial usage varies
-int signalstatus = 0;
-int oldsignalstatus = 0;
-int relaystatus = 0;
-int rpm_val = 0;
+// ------ 腳位定義 --------------------------------------------
+const int HALL_PIN  = 7;   // Hall 感測器輸入腳位
+const int RELAY_PIN = 12;  // 繼電器控制輸出腳位
 
+// ------ RPM 計算參數 ----------------------------------------
+// 每次計算 RPM 所需收集的脈衝數
+// 數值越大精度越高，但更新速度越慢；後續可自行微調
+const float HALL_THRESH    = 400.0;
 
-// ******setup code to run once:
+// 每轉對應的脈衝數（ST170 點火線圈信號：每轉 1 次脈衝）
+//   若曲軸每轉 1 圈 D7 收到 1 個脈衝 → PULSE_PER_REV = 1.0
+//   若曲軸每轉 1 圈 D7 收到 2 個脈衝 → PULSE_PER_REV = 2.0
+const float PULSE_PER_REV  = 1.0;
+
+// ------ 繼電器控制閾值（遲滯保護）--------------------------
+const int RPM_ON_THRESHOLD  = 6000;  // 超過此值 → 繼電器 ON
+const int RPM_OFF_THRESHOLD = 5800;  // 低於此值 → 繼電器 OFF
+// 5800 ~ 6000 之間保持上一次狀態
+
+// ------ 全域狀態變數 ----------------------------------------
+int  current_rpm   = 0;    // 目前計算出的 RPM
+bool relay_active  = false; // 繼電器目前狀態（false = OFF）
+
+// ============================================================
+// setup：只執行一次
+// ============================================================
 void setup() {
-Serial.begin(115200); // **initialize serial communication at 115200 bits per second
-
-pinMode(hall_pin, INPUT);// **make the hall pin an input type
-
-pinMode(12, OUTPUT); // **Relay signal active output as pin 12
-digitalWrite(12, LOW); // **Relay signal default is OFF status
-delay(500);
-
-//pinMode(8,OUTPUT); //Pin 8 borrow as power 5v for Relay
-//digitalWrite(8,HIGH); //Pin 8 borrow as power 5v for Relay
-//delay(500);
-
+  Serial.begin(115200);             // 初始化序列埠，鮑率 115200
+  pinMode(HALL_PIN,  INPUT);        // Hall 感測器腳位設為輸入
+  pinMode(RELAY_PIN, OUTPUT);       // 繼電器腳位設為輸出
+  digitalWrite(RELAY_PIN, LOW);     // 初始狀態：繼電器 OFF
+  delay(500);                       // 等待穩定
+  Serial.println("IMRC Controller Ready");
 }
 
-
-// ******the loop routine runs over and over again forever:
+// ============================================================
+// loop：主迴圈，持續執行
+// ============================================================
 void loop() {
-// **preallocate values for tachometer
-float hall_count = 1.0;
-float start = micros();
-bool on_state = false;
 
-// **counting number of times the hall sensor is tripped
-// **but without double counting during the same trip
-while(true){
-if (digitalRead(hall_pin)==0){
-if (on_state==false){
-on_state = true;
-hall_count+=1.0;
-}
-} else{
-on_state = false;
-}
+  // ---- 1. 收集脈衝，計時 ----------------------------------
+  float hall_count = 1.0;           // 從 1 開始避免除以 0
+  float start_time = micros();      // 記錄開始時間（微秒）
+  bool  on_state   = false;         // 用來避免同一次脈衝重複計數
 
-// **when count samples in time enough and break out loop
-if (hall_count>=hall_thresh){
-break;
-}
-}
+  while (true) {
+    if (digitalRead(HALL_PIN) == LOW) {
+      // 偵測到 LOW（脈衝觸發）
+      if (on_state == false) {
+        on_state = true;            // 標記為「已在脈衝中」
+        hall_count += 1.0;         // 計數 +1
+      }
+    } else {
+      on_state = false;             // 脈衝結束，重置旗標
+    }
 
-// print information about Time and RPM values in monitor window
-float end_time = micros();
-float time_passed = ((end_time-start)/1000000.0);
-Serial.print("Time Passed: ");
-Serial.print(time_passed);
-Serial.println("s");
-float rpm_val = (hall_count/time_passed)*60.0;
-Serial.print(rpm_val);
-Serial.println(" RPM");
-delay(1); // delay in between reads for stability
+    // 收集到足夠脈衝數後跳出
+    if (hall_count >= HALL_THRESH) {
+      break;
+    }
+  }
 
-SIGNALFILTER:
-signalstatus = digitalRead(12); // **memory pin 12 condition to compute
-if ((signalstatus == HIGH) && (oldsignalstatus == LOW)){
-relaystatus = 1 - relaystatus; // **relaystatus: 0=1-0=1 or 1=1-1=0
-delay(300);
-}
+  // ---- 2. 計算 RPM ----------------------------------------
+  // 公式：RPM = (脈衝數 / 每轉脈衝數) / 經過秒數 × 60
+  float end_time    = micros();
+  float time_passed = (end_time - start_time) / 1000000.0;  // 轉換成秒
+  current_rpm = (int)((hall_count / PULSE_PER_REV) / time_passed * 60.0);
 
-oldsignalstatus == signalstatus; // **both HIGH or LOW between now and old signal
-if (relaystatus == 1){
-digitalWrite(12, HIGH); // **when still relaystatus=1, output to start ON
-}
-else {
-digitalWrite(12, LOW); // **when change relaystatus=0, output to stop OFF
-}
+  // ---- 3. 序列埠輸出，供監控與除錯使用 --------------------
+  Serial.print("Time Passed: ");
+  Serial.print(time_passed, 3);     // 顯示小數點後 3 位
+  Serial.println(" s");
+  Serial.print("RPM: ");
+  Serial.println(current_rpm);
 
-COMPARERPM:
-rpm_val=rpm_val/12; // **fix filter 12 times of possible error
+  // ---- 4. 遲滯判斷，控制繼電器 ----------------------------
+  if (current_rpm >= RPM_ON_THRESHOLD) {
+    // 轉速超過 6000 RPM → 繼電器 ON
+    relay_active = true;
 
-if(rpm_val>=3900){ 
-delay(500); // **ensure more then 3900rpm and wait 500ms
-if(rpm_val>=4000){
-digitalWrite(12, HIGH); // **ensure more then 3900rpm and do output to start ON
-delay(500);
-}
-} else {
-digitalWrite(12, LOW); // **Otherwise do relay keep NC OFF
-delay(500);
-}
+  } else if (current_rpm < RPM_OFF_THRESHOLD) {
+    // 轉速低於 5800 RPM → 繼電器 OFF
+    relay_active = false;
 
+  }
+  // 5800 <= RPM < 6000：不更新 relay_active，保持上一次狀態
+
+  // ---- 5. 輸出繼電器動作 ----------------------------------
+  if (relay_active) {
+    digitalWrite(RELAY_PIN, HIGH);  // 繼電器 ON
+  } else {
+    digitalWrite(RELAY_PIN, LOW);   // 繼電器 OFF
+  }
+
+  // ---- 6. 序列埠輸出繼電器狀態 ----------------------------
+  Serial.print("Relay: ");
+  Serial.println(relay_active ? "ON" : "OFF");
+  Serial.println("--------------------");
+
+  delay(1);  // 短暫延遲，維持穩定性
 }

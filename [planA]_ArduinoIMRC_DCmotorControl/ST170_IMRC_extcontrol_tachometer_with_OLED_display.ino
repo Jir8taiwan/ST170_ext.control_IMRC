@@ -38,6 +38,9 @@ const float PULSE_PER_REV = 1.0;
 // IMRC 作動轉速門檻
 // -----------------------------------------------------------------------
 const int RPM_THRESHOLD = 6000;
+const int RPM_ON_THRESHOLD  = RPM_THRESHOLD;  // 超過此值 → 繼電器 ON
+const int RPM_OFF_THRESHOLD = RPM_THRESHOLD - 200;  // 低於此值 → 繼電器 OFF
+// 5800 ~ 6000 之間保持上一次狀態
 
 // -----------------------------------------------------------------------
 // 全域狀態變數
@@ -112,7 +115,7 @@ void loop() {
   current_rpm = (int)((hall_count / PULSE_PER_REV) / time_passed * 60.0);
 
   // 序列埠輸出供除錯監控
-  Serial.print("Time: ");
+  Serial.print("Time Passed: ");
   Serial.print(time_passed, 3);
   Serial.print("s  |  RPM: ");
   Serial.println(current_rpm);
@@ -126,13 +129,19 @@ void loop() {
   //       RPM 不會更新，確認沒有實際意義。
   //       RPM 本身已是 HALL_THRESH 個脈衝的平均值，穩定性足夠。
   // --------------------------------------------------------------------
-  if (current_rpm >= RPM_THRESHOLD) {
+  if (current_rpm >= RPM_ON_THRESHOLD) {
+    // 轉速超過 6000 RPM → 繼電器 ON
     digitalWrite(RELAY_PIN, HIGH);
     relay_active = true;
   } else {
     digitalWrite(RELAY_PIN, LOW);
+    // 轉速低於 5800 RPM → 繼電器 OFF
     relay_active = false;
   }
+  // ---- 序列埠輸出繼電器狀態 ----------------------------
+  Serial.print("Relay: ");
+  Serial.println(relay_active ? "ON" : "OFF");
+  Serial.println("--------------------");
 
   // --------------------------------------------------------------------
   // 第四步：更新 OLED 顯示
