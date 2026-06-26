@@ -1,136 +1,166 @@
-// ****** Using Arduino board to control IMRC active signal externally for Ford Focus MK1 ST170
-// Version 3.0 in 2022.07.18
-//
-// ****** define environment:
-// **digital pin 12 is control +5V realy coil
-// **digital pin 7 is the hall pin of signal input
-// **digital pin 13, 11, 10, 9, and 8 are for OLED display with SPI 7 pin model
-
+// ======================================================================
+// Ford Focus MK1 ST170 — IMRC 外部主動訊號控制器
+// Version 4.0 2026.06.26
+// 硬體腳位定義：
+//   D7  → Hall sensor / 點火訊號輸入（PCM 初級線圈下拉訊號）
+//   D12 → 繼電器 IN 致能輸出（HIGH = 繼電器動作，LOW = 繼電器關閉）
+//   OLED（SPI 7-pin SH1106）：
+//     D0=13, D1=11, CS=10, DC=9, Reset=8
+// ======================================================================
 #include "U8glib.h"
-U8GLIB_SH1106_128X64 u8g(13, 11, 10, 9, 8);  // D0=13, D1=11, CS=10, DC=9, Reset=8
+U8GLIB_SH1106_128X64 u8g(13, 11, 10, 9, 8);
 
-int hall_pin = 7;
-// **set number of hall trips for RPM reading (higher value scale improves accuracy)
-float hall_thresh = 400.0;
-//float hall_thresh = 100.0;
-//float hall_thresh = 50.0;
+// 版本：
+IMRCversion = "2026.06.26";
+// -----------------------------------------------------------------------
+// 腳位定義
+// -----------------------------------------------------------------------
+const int SIGNAL_PIN  = 7;   // 點火脈衝訊號輸入腳位
+const int RELAY_PIN   = 12;  // 繼電器 IN 致能輸出腳位
 
-// **initial usage varies
-int signalstatus = 0;
-int oldsignalstatus = 0;
-int relaystatus = 0;
-int rpm_val = 0;
+// -----------------------------------------------------------------------
+// 脈衝計數設定
+// 說明：等到累積 hall_thresh 個脈衝後才計算一次 RPM
+//       數值越大，計算越精確，但更新越慢
+// -----------------------------------------------------------------------
+const float HALL_THRESH = 400.0;
 
+// -----------------------------------------------------------------------
+// 脈衝係數設定（依實際接線調整）
+// 四缸四行程，抓一個點火訊號：
+//   若曲軸每轉 1 圈 D7 收到 1 個脈衝 → PULSE_PER_REV = 1.0
+//   若曲軸每轉 1 圈 D7 收到 2 個脈衝 → PULSE_PER_REV = 2.0
+// 實車測試時對比儀表板轉速表確認
+// -----------------------------------------------------------------------
+const float PULSE_PER_REV = 1.0;
 
-// ******setup code to run once:
+// -----------------------------------------------------------------------
+// IMRC 作動轉速門檻
+// -----------------------------------------------------------------------
+const int RPM_THRESHOLD = 6000;
+
+// -----------------------------------------------------------------------
+// 全域狀態變數
+// -----------------------------------------------------------------------
+int   current_rpm    = 0;  // 當前計算 RPM（給 OLED 顯示用）
+bool  relay_active   = false;  // 繼電器目前狀態（true = ON）
+
+// ======================================================================
+// setup()：開機初始化，只執行一次
+// ======================================================================
 void setup() {
-Serial.begin(115200); // **initialize serial communication at 115200 bits per second
 
-pinMode(hall_pin, INPUT);// **make the hall pin an input type
+  Serial.begin(115200);
 
-pinMode(12, OUTPUT); // **Relay signal active output as pin 12
-digitalWrite(12, LOW); // **Relay signal default is OFF status
-delay(500);
+  // 設定腳位方向
+  pinMode(SIGNAL_PIN, INPUT);   // D7 點火訊號輸入
+  pinMode(RELAY_PIN, OUTPUT);   // D12 繼電器輸出
+  digitalWrite(RELAY_PIN, LOW); // 開機預設繼電器關閉
 
-//pinMode(8,OUTPUT); //Pin 8 borrow as power 5v for Relay
-//digitalWrite(8,HIGH); //Pin 8 borrow as power 5v for Relay
-//delay(500);
+  delay(100);
 
-
-  u8g.firstPage();  
+  // OLED 開機畫面
+  u8g.firstPage();
   do {
-    u8g.setFont(u8g_font_helvB08);  
-    u8g.drawStr(3, 12, "GitHub: Jir8taiwan"); 
-    u8g.drawStr(3, 32, "ST170_ext.control_IMRC");
-    u8g.drawStr(3, 52, "v.220718");
-  } while( u8g.nextPage() );
-  delay(500);  
+    u8g.setFont(u8g_font_helvB08);
+    u8g.drawStr(3, 12, "GitHub: Jir8taiwan");
+    u8g.drawStr(3, 32, "ST170 IMRC Controller");
+    u8g.drawStr(3, 52, IMRCversion);
+  } while (u8g.nextPage());
+
+  delay(400);
 }
 
-
-// ******the loop routine runs over and over again forever:
+// ======================================================================
+// loop()：主迴圈，持續執行
+// ======================================================================
 void loop() {
-// **preallocate values for tachometer
-float hall_count = 1.0;
-float start = micros();
-bool on_state = false;
 
-// **counting number of times the hall sensor is tripped
-// **but without double counting during the same trip
-while(true){
-if (digitalRead(hall_pin)==0){
-if (on_state==false){
-on_state = true;
-hall_count+=1.0;
-}
-} else{
-on_state = false;
-}
+  // --------------------------------------------------------------------
+  // 第一步：量測 RPM
+  // 原理：等待 HALL_THRESH 個脈衝，計算這段時間，換算轉速
+  // PCM 下拉訊號：點火時為 LOW，待機時為 HIGH
+  // --------------------------------------------------------------------
+  float  hall_count = 0.0;
+  float  start_time = micros();
+  bool   in_pulse   = false;   // 防止同一個脈衝重複計數
 
-// **when count samples in time enough and break out loop
-if (hall_count>=hall_thresh){
-break;
-}
-}
+  while (true) {
+    if (digitalRead(SIGNAL_PIN) == LOW) {
+      // 訊號為 LOW = 點火觸發中
+      if (!in_pulse) {
+        in_pulse = true;     // 標記：目前在脈衝內
+        hall_count += 1.0;   // 計數加一
+      }
+    } else {
+      // 訊號回到 HIGH = 脈衝結束，重置旗標準備下一次
+      in_pulse = false;
+    }
 
-// print information about Time and RPM values in monitor window
-float end_time = micros();
-float time_passed = ((end_time-start)/1000000.0);
-Serial.print("Time Passed: ");
-Serial.print(time_passed);
-Serial.println("s");
-float rpm_val = (hall_count/time_passed)*60.0;
-Serial.print(rpm_val);
-Serial.println(" RPM");
-delay(1); // delay in between reads for stability
+    // 累積夠了就跳出，開始計算
+    if (hall_count >= HALL_THRESH) {
+      break;
+    }
+  }
 
-SIGNALFILTER:
-signalstatus = digitalRead(12); // **memory pin 12 condition to compute
-if ((signalstatus == HIGH) && (oldsignalstatus == LOW)){
-relaystatus = 1 - relaystatus; // **relaystatus: 0=1-0=1 or 1=1-1=0
-delay(300);
-}
+  // --------------------------------------------------------------------
+  // 第二步：計算 RPM
+  // 公式：RPM = (脈衝數 / 每轉脈衝數) / 經過秒數 × 60
+  // --------------------------------------------------------------------
+  float end_time     = micros();
+  float time_passed  = (end_time - start_time) / 1000000.0;  // 轉換成秒
+  current_rpm = (int)((hall_count / PULSE_PER_REV) / time_passed * 60.0);
 
-oldsignalstatus == signalstatus; // **both HIGH or LOW between now and old signal
-if (relaystatus == 1){
-digitalWrite(12, HIGH); // **when still relaystatus=1, output to start ON
-}
-else {
-digitalWrite(12, LOW); // **when change relaystatus=0, output to stop OFF
-}
+  // 序列埠輸出供除錯監控
+  Serial.print("Time: ");
+  Serial.print(time_passed, 3);
+  Serial.print("s  |  RPM: ");
+  Serial.println(current_rpm);
 
-COMPARERPM:
-rpm_val=rpm_val/12; // **fix filter 12 times of possible error
+  // --------------------------------------------------------------------
+  // 第三步：依 RPM 控制繼電器輸出
+  // 邏輯：
+  //   RPM >= RPM_THRESHOLD → 繼電器 ON（IMRC 開啟）
+  //   RPM <  RPM_THRESHOLD → 繼電器 OFF（IMRC 關閉）
+  // 注意：不使用 delay() 做二次確認，因為 delay() 期間
+  //       RPM 不會更新，確認沒有實際意義。
+  //       RPM 本身已是 HALL_THRESH 個脈衝的平均值，穩定性足夠。
+  // --------------------------------------------------------------------
+  if (current_rpm >= RPM_THRESHOLD) {
+    digitalWrite(RELAY_PIN, HIGH);
+    relay_active = true;
+  } else {
+    digitalWrite(RELAY_PIN, LOW);
+    relay_active = false;
+  }
 
-if(rpm_val>=3900){ 
-delay(500); // **ensure more then 3900rpm and wait 500ms
-if(rpm_val>=4000){
-digitalWrite(12, HIGH); // **ensure more then 3900rpm and do output to start ON
-delay(500);
-}
-} else {
-digitalWrite(12, LOW); // **Otherwise do relay keep NC OFF
-delay(500);
-}
-
-u8g.firstPage();  
+  // --------------------------------------------------------------------
+  // 第四步：更新 OLED 顯示
+  // 顯示：目前 RPM、繼電器狀態、設定門檻
+  // --------------------------------------------------------------------
+  u8g.firstPage();
   do {
-    // 輸出字串(x座標,y座標,文字)
-    u8g.setFont(u8g_font_helvR12);  
-    u8g.drawStr(0, 15, "Eng:");  
-    u8g.setPrintPos(55, 15);
-    u8g.print(rpm_val, 0);
-    u8g.print(" RPM");
+    u8g.setFont(u8g_font_helvR12);
 
-    u8g.drawStr(0, 35, "PIN12:");
-    u8g.setPrintPos(55, 35);
-    u8g.print(digitalRead(12));
+    // 第一行：RPM 數值
+    u8g.drawStr(0, 15, "RPM:");
+    u8g.setPrintPos(50, 15);
+    u8g.print(current_rpm);
 
-    u8g.drawStr(0, 55, "CMD:");
-    u8g.setPrintPos(55, 55);
-    u8g.print(signalstatus);
-    
-  } while( u8g.nextPage() );
-  delay(200);
-  
-}  // void loop() end location
+    // 第二行：繼電器狀態
+    u8g.drawStr(0, 35, "IMRC:");
+    u8g.setPrintPos(50, 35);
+    u8g.print(relay_active ? "ON " : "OFF");
+
+    // 第三行：設定門檻（確認目前設定值）
+    u8g.drawStr(0, 55, "SET:");
+    u8g.setPrintPos(50, 55);
+    u8g.print(RPM_THRESHOLD);
+    u8g.print("rpm");
+
+  } while (u8g.nextPage());
+
+  // 短暫延遲避免 OLED 更新過快造成閃爍
+  delay(100);
+
+} // loop() 結束
